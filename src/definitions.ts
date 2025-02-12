@@ -1,7 +1,9 @@
 import type { PermissionState } from '@capacitor/core';
 
+type ExtendedPermissionState = PermissionState | 'granted_limited';
+
 export interface PermissionStatus {
-  contacts: PermissionState;
+  contacts: ExtendedPermissionState;
 }
 
 export interface ContactsPlugin {

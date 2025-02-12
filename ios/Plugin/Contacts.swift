@@ -77,29 +77,34 @@ public class Contacts: NSObject {
         }
     }
 
-    public func getContacts(_ projection: GetContactsProjectionInput) -> [ContactPayload] {
-        let projection = projection.getProjection()
+  public func getContacts(_ projection: GetContactsProjectionInput, keysToFetch: [CNKeyDescriptor] = []) -> [ContactPayload] {
+      let projectionKeys = projection.getProjection()
+      var allKeysToFetch = projectionKeys
 
-        var contacts = [ContactPayload]()
+      // Adiciona a chave CNContactImageDataKey se não estiver presente
+      if !allKeysToFetch.contains(where: { $0 as? String == CNContactImageDataKey }) {
+          allKeysToFetch.append(CNContactImageDataKey as CNKeyDescriptor)
+      }
 
-        let cs = CNContactStore()
+      // Se chaves adicionais forem fornecidas, adiciona-as também
+      allKeysToFetch.append(contentsOf: keysToFetch)
 
-        do {
-            let request = CNContactFetchRequest(keysToFetch: projection)
+      var contacts = [ContactPayload]()
+      let cs = CNContactStore()
 
-            try cs.enumerateContacts(with: request) { (contactData, _) in
-                let contact = ContactPayload(contactData.identifier)
+      do {
+          let request = CNContactFetchRequest(keysToFetch: allKeysToFetch)
+          try cs.enumerateContacts(with: request) { (contactData, _) in
+              let contact = ContactPayload(contactData.identifier)
+              contact.fillData(contactData)
+              contacts.append(contact)
+          }
+      } catch {
+          print("Erro ao buscar contatos: \(error)")
+      }
 
-                contact.fillData(contactData)
-
-                contacts.append(contact)
-            }
-        } catch {
-            // oops
-        }
-
-        return contacts
-    }
+      return contacts
+  }
 
     public func createContact(_ contactInput: CreateContactInput) -> String? {
         let newContact = CNMutableContact()
