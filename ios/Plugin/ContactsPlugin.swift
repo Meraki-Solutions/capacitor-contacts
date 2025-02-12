@@ -233,162 +233,192 @@ public class ContactsPlugin: CAPPlugin, CNContactPickerDelegate {
 
 }
 
-// MARK: - UI Customizada para exibir contatos limitados
-// Essa classe cria uma interface simples com uma lista (table view) para que o usuário selecione
-
 import UIKit
 
 @available(iOS 14.0, *)
 class LimitedContactPickerViewController: UITableViewController {
-    // Array de contatos (modelo ContactPayload)
+    
     var contacts: [ContactPayload] = []
-    // Callback para retornar o contato selecionado
+    private var sortedContacts: [String: [ContactPayload]] = [:]
+    private var sectionTitles: [String] = []
+    
     var selectionHandler: ((ContactPayload) -> Void)?
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        
-        // Registro da célula padrão
-        self.tableView.register(UITableViewCell.self, forCellReuseIdentifier: "contactCell")
-        
-        // Define o título com suporte a multilíngua
-        self.title = NSLocalizedString("Lista de contatos permitidos", comment: "Título da lista de contatos permitidos")
-        
-        // Adiciona um botão fechar (ícone) no canto superior direito
-        self.navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "xmark"),
-            style: .plain,
-            target: self,
-            action: #selector(closeTapped)
-        )
-      self.tableView.contentInset = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
-
-        // Adiciona um cabeçalho vazio para dar espaçamento no topo (por exemplo, 20 pontos)
-        let headerView = UIView(frame: CGRect(x: 0, y: 0, width: tableView.frame.width, height: 20))
-        headerView.backgroundColor = .clear
-        self.tableView.tableHeaderView = headerView
-    }
     
-    @objc func closeTapped() {
-        self.dismiss(animated: true, completion: nil)
-    }
-    
-    // Número de linhas = número de contatos
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return contacts.count
-    }
-    
-    // Configuração da célula com foto, texto e layout ajustado
-  override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-    let cell = tableView.dequeueReusableCell(withIdentifier: "contactCell", for: indexPath)
-    let contact = contacts[indexPath.row]
-    
-    // Configuração padrão do conteúdo da célula
-    var content = cell.defaultContentConfiguration()
-    
-    // Define o texto de exibição:
-    // 1. Se houver nome (contactDisplayName), usa-o.
-    // 2. Senão, se houver email, usa o primeiro email.
-    // 3. Senão, se houver telefone, usa o primeiro telefone.
-    // 4. Caso contrário, exibe "Sem dados".
-    var displayText = ""
-    if let name = contact.contactDisplayName, !name.isEmpty {
-      displayText = name
-    } else if let email = contact.firstEmail, !email.isEmpty {
-      displayText = email
-    } else if let phone = contact.firstPhone, !phone.isEmpty {
-      displayText = phone
-    } else {
-      displayText = NSLocalizedString("Sem dados", comment: "Nenhuma informação disponível")
-    }
-    content.text = displayText
-    
-    // Configura a imagem à esquerda:
-    let jsObject = contact.getJSObject()
-    print("JSObject para o contato \(contact.contactId): \(jsObject)")
-    if let imageDict = jsObject["image"] as? [String: Any],
-       let base64String = imageDict["base64String"] as? String {
-      print("Base64 String encontrada para o contato \(contact.contactId): \(base64String)")
-      let base64DataString = base64String.components(separatedBy: ",").last ?? ""
-      if let imageData = Data(base64Encoded: base64DataString),
-         let image = UIImage(data: imageData) {
-        print("Imagem decodificada com sucesso para o contato \(contact.contactId)")
-        content.image = image
-      } else {
-        print("Erro ao criar UIImage para o contato \(contact.contactId)")
-        content.image = UIImage(systemName: "person.circle")
-      }
-    } else {
-      print("Campo 'image' inválido ou ausente para o contato \(contact.contactId)")
-      content.image = UIImage(systemName: "person.circle")
-    }
-    
-    // Ajusta o tamanho e o estilo da imagem
-    content.imageProperties.maximumSize = CGSize(width: 30, height: 30)
-    content.imageProperties.cornerRadius = 20
-    
-    // Aplica o conteúdo configurado à célula
-    cell.contentConfiguration = content
-    
-    // Remove o accessoryType
-    cell.accessoryType = .none
-    
-    return cell
+  override func viewDidLoad() {
+      super.viewDidLoad()
+      
+      self.title = "Limited Contacts" // Forçar título no header
+      
+      // 🔹 Garante que a barra de navegação apareça corretamente
+      navigationController?.navigationBar.prefersLargeTitles = false
+      navigationItem.largeTitleDisplayMode = .never
+      
+      let closeButton = UIButton(type: .system)
+      closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+      closeButton.tintColor = .systemGray
+      closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+      
+      navigationItem.rightBarButtonItem = UIBarButtonItem(customView: closeButton)
+      
+      tableView.register(ContactTableViewCell.self, forCellReuseIdentifier: "contactCell")
+      tableView.backgroundColor = .systemGroupedBackground
+      tableView.rowHeight = 60
+      
+      sortContacts()
   }
-  
-    // Ao selecionar um contato, chama o callback e fecha a tela
+
+    
+    @objc private func closeTapped() {
+        dismiss(animated: true)
+    }
+    
+    // MARK: - Organização por letras A-Z
+    private func sortContacts() {
+        sortedContacts = Dictionary(grouping: contacts) { contact in
+            String(contact.contactDisplayName?.prefix(1) ?? "#").uppercased()
+        }
+        sectionTitles = sortedContacts.keys.sorted()
+    }
+    
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        return sectionTitles.count
+    }
+    
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return sortedContacts[sectionTitles[section]]?.count ?? 0
+    }
+    
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "contactCell", for: indexPath) as! ContactTableViewCell
+        if let contact = sortedContacts[sectionTitles[indexPath.section]]?[indexPath.row] {
+            cell.configure(with: contact)
+        }
+        return cell
+    }
+    
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let selectedContact = contacts[indexPath.row]
-        selectionHandler?(selectedContact)
-        self.dismiss(animated: true, completion: nil)
+        tableView.deselectRow(at: indexPath, animated: true)
+        if let selectedContact = sortedContacts[sectionTitles[indexPath.section]]?[indexPath.row] {
+            selectionHandler?(selectedContact)
+            dismiss(animated: true)
+        }
+    }
+    
+    // 🚫 Removendo índice lateral (letrinhas azuis)
+    override func sectionIndexTitles(for tableView: UITableView) -> [String]? {
+        return nil
+    }
+    
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        return sectionTitles[section]
     }
 }
 
+// MARK: - Célula de Contato
+@available(iOS 14.0, *)
+class ContactTableViewCell: UITableViewCell {
+    
+    private let contactImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.layer.masksToBounds = true
+        imageView.contentMode = .scaleAspectFill
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+    
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: .default, reuseIdentifier: reuseIdentifier)
+        accessoryType = .disclosureIndicator
+        setupUI()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func setupUI() {
+        addSubview(contactImageView)
+        NSLayoutConstraint.activate([
+            contactImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 15),
+            contactImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contactImageView.widthAnchor.constraint(equalToConstant: 44),
+            contactImageView.heightAnchor.constraint(equalToConstant: 44)
+        ])
+        
+        // 🛠 Garante que a imagem fique redonda corretamente
+        DispatchQueue.main.async {
+            self.contactImageView.layer.cornerRadius = self.contactImageView.frame.height / 2
+        }
+    }
+    
+    func configure(with contact: ContactPayload) {
+        var content = defaultContentConfiguration()
+        
+        content.text = contact.contactDisplayName ?? "Sem Nome"
+        content.secondaryText = contact.firstPhone ?? contact.firstEmail ?? "Sem Informações"
+        content.image = contact.loadImage() ?? UIImage(systemName: "person.circle.fill")
+        
+        // 📸 Melhorando imagem para ficar circular
+        content.imageProperties.maximumSize = CGSize(width: 44, height: 44)
+        content.imageProperties.cornerRadius = 22
+        
+        // 🔠 Nome com peso maior (semibold)
+        content.textProperties.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        
+        contentConfiguration = content
+    }
+}
+
+// MARK: - Extensão para carregar imagem
 extension ContactPayload {
-    /// Retorna o nome formatado do contato.
-    var contactDisplayName: String? {
-        if let nameDict = self.getJSObject()["name"] as? [String: Any] {
-            // Tenta utilizar o displayName
-            if let display = nameDict["display"] as? String, !display.isEmpty {
-                return display
-            } else {
-                // Se não houver display, concatena os componentes disponíveis
-                var components = [String]()
-                if let given = nameDict["given"] as? String, !given.isEmpty {
-                    components.append(given)
-                }
-                if let middle = nameDict["middle"] as? String, !middle.isEmpty {
-                    components.append(middle)
-                }
-                if let family = nameDict["family"] as? String, !family.isEmpty {
-                    components.append(family)
-                }
-                if !components.isEmpty {
-                    return components.joined(separator: " ")
-                }
-            }
-        }
-        return nil
-    }
-    
-    /// Retorna o primeiro email, se disponível.
-    var firstEmail: String? {
-        if let emailsArray = self.getJSObject()["emails"] as? [Any],
-           let firstEmailObj = emailsArray.first as? [String: Any],
-           let email = firstEmailObj["address"] as? String,
-           !email.isEmpty {
-            return email
-        }
-        return nil
-    }
-    
-    /// Retorna o primeiro telefone, se disponível.
-    var firstPhone: String? {
-        if let phonesArray = self.getJSObject()["phones"] as? [Any],
-           let firstPhoneObj = phonesArray.first as? [String: Any],
-           let phone = firstPhoneObj["number"] as? String,
-           !phone.isEmpty {
-            return phone
+  var contactDisplayName: String? {
+          if let nameDict = self.getJSObject()["name"] as? [String: Any] {
+              if let display = nameDict["display"] as? String, !display.isEmpty {
+                  return display
+              } else {
+                  var components = [String]()
+                  if let given = nameDict["given"] as? String, !given.isEmpty {
+                      components.append(given)
+                  }
+                  if let middle = nameDict["middle"] as? String, !middle.isEmpty {
+                      components.append(middle)
+                  }
+                  if let family = nameDict["family"] as? String, !family.isEmpty {
+                      components.append(family)
+                  }
+                  if !components.isEmpty {
+                      return components.joined(separator: " ")
+                  }
+              }
+          }
+          return nil
+      }
+      
+      var firstPhone: String? {
+          if let phonesArray = self.getJSObject()["phones"] as? [[String: Any]],
+             let firstPhoneObj = phonesArray.first,
+             let phone = firstPhoneObj["number"] as? String,
+             !phone.isEmpty {
+              return phone
+          }
+          return nil
+      }
+      
+      var firstEmail: String? {
+          if let emailsArray = self.getJSObject()["emails"] as? [[String: Any]],
+             let firstEmailObj = emailsArray.first,
+             let email = firstEmailObj["address"] as? String,
+             !email.isEmpty {
+              return email
+          }
+          return nil
+      }
+    func loadImage() -> UIImage? {
+        if let imageDict = getJSObject()["image"] as? [String: Any],
+           let base64String = imageDict["base64String"] as? String,
+           let imageData = Data(base64Encoded: base64String.components(separatedBy: ",").last ?? ""),
+           let image = UIImage(data: imageData) {
+            return image
         }
         return nil
     }
